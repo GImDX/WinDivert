@@ -53,7 +53,7 @@
 
 #include <shlwapi.h> 
 
-#include <windivert.h>>
+#include <windivert.h>
 #include <uthash.h>
 
 #define ntohs(x)            WinDivertHelperNtohs(x)
@@ -630,55 +630,60 @@ int __cdecl main(int argc, char **argv)
 
     int filter_ip_version = 0;      // 0: all, 4: IPv4, 6: IPv6
     int filter_protocol = 0;        // 0: all, 1: ICMP, 6: TCP, 17: UDP
-    // Check arguments.
-    switch (argc)
-    {
-        case 2:
-            break;
-        case 3:
-            priority = (INT16)atoi(argv[2]);
-            break;
-        case 4:
-            // path filter
-            if (strlen(argv[3]) > 0 && _stricmp(argv[3], "true") != 0)
-            {
-                if (!CheckFilterExpression(argv[3]))  // 表达式合法性检查
-                {
-                    fprintf(stderr, "Invalid expression: %s\n", argv[3]);
-                    fprintf(stderr, "Example expressions:\n");
-                    fprintf(stderr, "  \"true\"\n");
-                    fprintf(stderr, "  \"#miner#\"\n");
-                    fprintf(stderr, "  \"!#<windows>#\"\n");
-                    fprintf(stderr, "  \"!#<unknown>#\"\n");
-                    fprintf(stderr, "  \"#miner# or #todesk#\"\n");
-                    fprintf(stderr, "  \"#svchost# and #windows#\"\n");
-                    fprintf(stderr, "  \"#miner# or (#windows# and !#svchost#)\"\n");
-                    exit(EXIT_FAILURE);
-                }
-                tokenize_expr(argv[3]);
-                filter_root = parse_expr();
-            }
-            break;
-        case 5:
-            // 过滤 IPv4/IPv6
-            filter_ip_version = atoi(argv[4]);  // "4" or "6"
-            break;
-        case 6:
-            // 过滤 IPv4/IPv6
-            filter_protocol = atoi(argv[5]);    // "1", "6", or "17"
-            break;
-        default:
-            fprintf(stderr, "usage: %s windivert-filter [priority] path-expression [ipversion] [protocol]\n",
-                argv[0]);
-            fprintf(stderr, "examples:\n");
-            fprintf(stderr, "\t%s true\n", argv[0]);
-            fprintf(stderr, "\t%s \"outbound and tcp.DstPort == 80\" 1000\n",
-                argv[0]);
-            fprintf(stderr, "\t%s \"inbound and tcp.Syn\" -400\n", argv[0]);
-            fprintf(stderr, "  %s \"true\" 0 \"#miner# or (#svchost# and !#windows#)\"\n", argv[0]);
-            fprintf(stderr, "  %s \"true\" 0 \"#miner# or (#svchost# and !#windows#) 4 tu\"\n", argv[0]);
+    BOOL enable_ipv4 = TRUE, enable_ipv6 = TRUE;
+    BOOL enable_tcp = TRUE, enable_udp = TRUE, enable_icmp = TRUE;
 
-            exit(EXIT_FAILURE);
+    // Check arguments.
+    if (argc < 2 || argc > 6) {
+        fprintf(stderr, "Usage: %s windivert-filter [priority] [path-expression] [ipversion] [protocol]\n", argv[0]);
+        fprintf(stderr, "Examples:\n");
+        fprintf(stderr, "  %s \"true\"\n", argv[0]);
+        fprintf(stderr, "  %s \"outbound and tcp.DstPort == 80\" 1000\n", argv[0]);
+        fprintf(stderr, "  %s \"inbound and tcp.Syn\" -400\n", argv[0]);
+        fprintf(stderr, "  %s \"true\" 0 \"#miner# or (#svchost# and !#windows#)\"\n", argv[0]);
+        fprintf(stderr, "  %s \"true\" 0 \"#miner# or (#svchost# and !#windows#)\" 4 6\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+    // arg[1]: filter
+    // arg[2]: priority
+    if (argc > 2) {
+        priority = (INT16)atoi(argv[2]);
+    }
+    // arg[3]: path
+    if (argc > 3) {
+        if (strlen(argv[3]) > 0 && _stricmp(argv[3], "true") != 0)
+        {
+            if (!CheckFilterExpression(argv[3]))
+            {
+                fprintf(stderr, "Invalid expression: %s\n", argv[3]);
+                fprintf(stderr, "Example expressions:\n");
+                fprintf(stderr, "  \"true\"\n");
+                fprintf(stderr, "  \"#miner#\"\n");
+                fprintf(stderr, "  \"!#<windows>#\"\n");
+                fprintf(stderr, "  \"!#<unknown>#\"\n");
+                fprintf(stderr, "  \"#miner# or #todesk#\"\n");
+                fprintf(stderr, "  \"#svchost# and #windows#\"\n");
+                fprintf(stderr, "  \"#miner# or (#windows# and !#svchost#)\"\n");
+                exit(EXIT_FAILURE);
+            }
+            tokenize_expr(argv[3]);
+            filter_root = parse_expr();
+        }
+    }
+    // arg[4]: ipversion 0: all, 4: IPv4, 6: IPv6
+    if (argc > 4) {
+        if (strcmp(argv[4], "4") == 0) {
+            enable_ipv6 = FALSE;
+        } else if (strcmp(argv[4], "6") == 0) {
+            enable_ipv4 = FALSE;
+        }
+    }
+    // arg[5]: protocol 0: all, 1: ICMP, 6: TCP, 17: UDP
+    if (argc > 5) {
+        enable_tcp = enable_udp = enable_icmp = FALSE;
+        if (strchr(argv[5], 't')) enable_tcp = TRUE;
+        if (strchr(argv[5], 'u')) enable_udp = TRUE;
+        if (strchr(argv[5], 'i')) enable_icmp = TRUE;
     }
 
     // Get console for pretty colors.
@@ -737,24 +742,6 @@ int __cdecl main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    BOOL enable_ipv4 = TRUE, enable_ipv6 = TRUE;
-    BOOL enable_tcp = TRUE, enable_udp = TRUE, enable_icmp = TRUE;
-
-    if (argc >= 5) {
-        if (strcmp(argv[4], "4") == 0) {
-            enable_ipv6 = FALSE;
-        } else if (strcmp(argv[4], "6") == 0) {
-            enable_ipv4 = FALSE;
-        }
-
-        if (argc >= 6) {
-            enable_tcp = enable_udp = enable_icmp = FALSE;
-            if (strchr(argv[5], 't')) enable_tcp = TRUE;
-            if (strchr(argv[5], 'u')) enable_udp = TRUE;
-            if (strchr(argv[5], 'i')) enable_icmp = TRUE;
-        }
-    }
-
     // Main loop:
     while (TRUE)
     {
@@ -794,13 +781,14 @@ int __cdecl main(int argc, char **argv)
         if (!ShouldPrintPacket(name)) {
             continue; // 跳过本次数据包处理
         }
-        if ((ip_header && !enable_ipv4) || (ipv6_header && !enable_ipv6))
+        if ((ip_header && !enable_ipv4) || (ipv6_header && !enable_ipv6)){
             continue;
-
+        }
         if ((tcp_header && !enable_tcp) ||
             (udp_header && !enable_udp) ||
-            ((icmp_header || icmpv6_header) && !enable_icmp))
-            continue;
+            ((icmp_header || icmpv6_header) && !enable_icmp)){
+                continue;
+        }
         // Dump packet info:        
         putchar('\n');
         GetLocalTime(&st);
